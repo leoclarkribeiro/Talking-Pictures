@@ -18,4 +18,4 @@ jobs:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        server-dir: ~/public_html/website_57427395  # Change this if your site is in a subfolder
+        server-dir: ~/public_html/website_57427395/  # Change this if your site is in a subfolder
