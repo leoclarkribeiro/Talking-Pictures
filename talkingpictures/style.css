@@ -460,6 +460,18 @@ header .upload-hint {
 
 .instruction-steps li {
     margin-bottom: 8px;
+    padding: 6px 10px;
+    margin-left: -10px;
+    padding-left: 14px;
+    border-left: 3px solid transparent;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.instruction-steps li.current {
+    border-left-color: var(--accent);
+    background: var(--bg-input);
+    color: var(--accent);
+    font-weight: 600;
 }
 
 .selection-main {

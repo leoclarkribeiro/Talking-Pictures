@@ -512,6 +512,14 @@ class LipSyncAnimator {
             descEl.textContent = 'Draw an oval around the right eye (viewer’s right).';
             continueBtn.textContent = 'Continue to Animation';
         }
+        // Highlight current step in the instructions list (1–4)
+        const stepItems = document.querySelectorAll('.instruction-steps li');
+        stepItems.forEach((li, i) => li.classList.remove('current'));
+        let currentIndex = 0;
+        if (this.selectionStep === 'mouth') currentIndex = 0;
+        else if (this.selectionStep === 'leftEye') currentIndex = 1;
+        else if (this.selectionStep === 'rightEye') currentIndex = hasCurrent ? 3 : 2;
+        if (stepItems[currentIndex]) stepItems[currentIndex].classList.add('current');
     }
 
     showSelectionMode() {
