@@ -24,4 +24,4 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./  # Or './dist/' if you have a build folder
-          server-dir: ~/public_html/website_57427395  # Path on HostGator server
+          server-dir: ~/public_html/website_57427395/  # Path on HostGator server
