@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talking Pictures</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark/light mode">
+        <span class="theme-icon sun"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span>
+        <span class="theme-icon moon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
+    </button>
+
+    <div class="container">
+        <header>
+            <h1>Talking Pictures</h1>
+            <p class="subtitle">Welcome to our privacy-focused "Puppet-as-a-Service" (PaaS) that solves a real problem for journalists, whistleblowers, and creators who need to maintain guest anonymity without losing the human connection of video.</p>
+            <p class="intro-line">Use this FREE service to make any image with a mouth and eyes move according to an audio file.</p>
+            <p class="upload-hint">Drop an audio file (.WAV) and an image - your video will be created automatically!</p>
+        </header>
+
+        <div class="upload-section">
+            <div class="upload-box">
+                <label for="audioFile" class="upload-label">
+                    <span class="upload-icon icon-audio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>
+                    <span class="upload-text">Drop audio file (.WAV) or click to browse</span>
+                    <input type="file" id="audioFile" accept=".wav,audio/*" hidden>
+                </label>
+                <div class="upload-warning"><span class="icon-warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> Limit audio length to ~45 minutes maximum. Split longer files into segments for best results.</div>
+                <div id="audioFileName" class="file-name"></div>
+            </div>
+
+            <div class="upload-box">
+                <label for="imageFile" class="upload-label">
+                    <span class="upload-icon icon-image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
+                    <span class="upload-text">Drop image file or click to browse</span>
+                    <input type="file" id="imageFile" accept="image/*" hidden>
+                </label>
+                <div id="imageFileName" class="file-name"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="playBtn" class="btn btn-primary" disabled style="display: none;"><span class="btn-icon"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></span> Play</button>
+            <button id="stopBtn" class="btn btn-secondary" disabled style="display: none;"><span class="btn-icon"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg></span> Stop</button>
+            <button id="recordBtn" class="btn btn-success" disabled style="display: none;"><span class="btn-icon"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></span> Record</button>
+            <button id="resetBtn" class="btn btn-secondary"><span class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></span> Reset</button>
+        </div>
+        <div id="recordingStatus" class="recording-status hidden">
+            <span class="recording-dot"></span>
+            <span>Creating your video... This will download automatically when finished.</span>
+            <small>(MP4 if supported, otherwise WebM)</small>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="animationCanvas"></canvas>
+            <canvas id="selectionCanvas" class="hidden"></canvas>
+            <div id="instructions" class="instructions">
+                <p><span class="icon-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span> Drop an audio file (.WAV) and an image above</p>
+                <p class="instructions-sub">Your video will be created automatically!</p>
+            </div>
+            <div id="modelLoading" class="model-loading hidden">
+                <p><span class="icon-loading"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/></svg></span> Loading face detection models…</p>
+                <div class="loading-spinner"></div>
+            </div>
+        </div>
+        <div id="selectionMode" class="selection-mode hidden">
+            <div class="selection-instructions">
+                <div class="instructions-sidebar">
+                    <h4>Instructions</h4>
+                    <ol class="instruction-steps">
+                        <li>Select the mouth area of the image</li>
+                        <li>Select the left eye area of the image</li>
+                        <li>Select the right eye area of the image</li>
+                        <li>Click on Continue to Animation</li>
+                    </ol>
+                </div>
+                <div class="selection-main">
+                    <h3 id="selectionStepTitle" class="step-title"><span id="selectionStepIcon" class="step-icon"></span><span id="selectionStepText">Select Mouth Area</span></h3>
+                    <p id="selectionStepDescription">Click and drag on the image above to draw an oval around the mouth area.</p>
+                    <div class="selection-buttons">
+                        <button id="continueBtn" class="btn btn-primary" disabled>Next</button>
+                        <button id="clearSelectionBtn" class="btn btn-secondary"><span class="btn-icon small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></span> Clear</button>
+                    </div>
+                    <div class="skip-preview-option">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="skipPreviewCheckbox">
+                            <span>Skip preview / Generate in background</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="backgroundProgress" class="background-progress hidden">
+            <div class="progress-container">
+                <h3>Generating video in background...</h3>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar">
+                        <div id="progressBarFill" class="progress-bar-fill"></div>
+                    </div>
+                    <span id="progressText" class="progress-text">0%</span>
+                </div>
+                <p class="progress-hint">Please keep this tab open. The video will download automatically when ready.</p>
+            </div>
+        </div>
+
+        <div class="settings">
+            <h3>Settings</h3>
+            <div class="setting-group">
+                <label for="mouthSensitivity">Mouth Sensitivity</label>
+                <input type="range" id="mouthSensitivity" min="0.5" max="3" step="0.1" value="1.5">
+                <span id="sensitivityValue">1.5</span>
+            </div>
+            <div class="setting-group">
+                <label for="mouthSize">Mouth Size</label>
+                <input type="range" id="mouthSize" min="0.3" max="1.5" step="0.1" value="1.0">
+                <span id="sizeValue">1.0</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.14.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/recordrtc@5.6.2/RecordRTC.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
