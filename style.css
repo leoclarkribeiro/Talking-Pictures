@@ -413,6 +413,20 @@ header .upload-hint {
     display: none;
 }
 
+.canvas-progress {
+    max-width: 800px;
+    margin: -8px auto 24px;
+    padding: 12px 0;
+}
+
+.canvas-progress.hidden {
+    display: none;
+}
+
+.canvas-progress .progress-bar-wrapper {
+    margin-bottom: 0;
+}
+
 .selection-mode {
     max-width: 900px;
     margin: 0 auto 30px;

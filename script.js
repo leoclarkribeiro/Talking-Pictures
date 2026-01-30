@@ -743,9 +743,11 @@ class LipSyncAnimator {
             backgroundProgress.classList.remove('hidden');
             recordingStatus.classList.add('hidden');
         } else {
-            // Show normal recording status
+            // Show normal recording status and progress bar under canvas
             const canvasContainer = document.querySelector('.canvas-container');
             canvasContainer.style.display = '';
+            const canvasProgress = document.getElementById('canvasProgress');
+            if (canvasProgress) canvasProgress.classList.remove('hidden');
         }
 
         // Start audio playback and animation
@@ -865,6 +867,8 @@ class LipSyncAnimator {
                             if (canvasContainer) canvasContainer.style.display = '';
                             const backgroundProgress = document.getElementById('backgroundProgress');
                             if (backgroundProgress) backgroundProgress.classList.add('hidden');
+                            const canvasProgress = document.getElementById('canvasProgress');
+                            if (canvasProgress) canvasProgress.classList.add('hidden');
                             
                             // Show success message briefly
                             const successMsg = document.createElement('div');
@@ -895,6 +899,8 @@ class LipSyncAnimator {
                             if (canvasContainer) canvasContainer.style.display = '';
                             const backgroundProgress = document.getElementById('backgroundProgress');
                             if (backgroundProgress) backgroundProgress.classList.add('hidden');
+                            const canvasProgress = document.getElementById('canvasProgress');
+                            if (canvasProgress) canvasProgress.classList.add('hidden');
                             this.recorder = null;
                             resolve();
                         }
@@ -913,6 +919,8 @@ class LipSyncAnimator {
         if (canvasContainer) canvasContainer.style.display = '';
         const backgroundProgress = document.getElementById('backgroundProgress');
         if (backgroundProgress) backgroundProgress.classList.add('hidden');
+        const canvasProgress = document.getElementById('canvasProgress');
+        if (canvasProgress) canvasProgress.classList.add('hidden');
         
         this.drawFrame();
     }
@@ -949,6 +957,8 @@ class LipSyncAnimator {
         if (canvasContainer) canvasContainer.style.display = '';
         const backgroundProgress = document.getElementById('backgroundProgress');
         if (backgroundProgress) backgroundProgress.classList.add('hidden');
+        const canvasProgress = document.getElementById('canvasProgress');
+        if (canvasProgress) canvasProgress.classList.add('hidden');
         
         this.selectionCtx.clearRect(0, 0, this.selectionCanvas.width, this.selectionCanvas.height);
         await this.checkReady();
@@ -1020,15 +1030,24 @@ class LipSyncAnimator {
             }
         }
 
-        // Update progress bar if skipping preview
-        if (this.skipPreview && this.isRecording && this.audioDuration) {
+        // Update progress bar(s) when recording
+        if (this.isRecording && this.audioDuration && this.audioContext) {
             const elapsed = this.audioContext.currentTime - this.startTime;
             const progress = Math.min(100, (elapsed / this.audioDuration) * 100);
-            const progressBarFill = document.getElementById('progressBarFill');
-            const progressText = document.getElementById('progressText');
-            if (progressBarFill && progressText) {
-                progressBarFill.style.width = progress + '%';
-                progressText.textContent = Math.round(progress) + '%';
+            const pct = Math.round(progress) + '%';
+            if (this.skipPreview) {
+                const progressBarFill = document.getElementById('progressBarFill');
+                const progressText = document.getElementById('progressText');
+                if (progressBarFill && progressText) {
+                    progressBarFill.style.width = progress + '%';
+                    progressText.textContent = pct;
+                }
+            }
+            const canvasProgressBarFill = document.getElementById('canvasProgressBarFill');
+            const canvasProgressText = document.getElementById('canvasProgressText');
+            if (canvasProgressBarFill && canvasProgressText) {
+                canvasProgressBarFill.style.width = progress + '%';
+                canvasProgressText.textContent = pct;
             }
         }
 
