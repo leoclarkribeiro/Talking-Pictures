@@ -1,0 +1,27 @@
+name: Deploy to HostGator
+
+on:
+  push:
+    branches: [main]  # Deploy on pushes to main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Add build steps if your project needs them (e.g., for Vite/React apps)
+      # - name: Install dependencies
+      #   run: npm install
+      # - name: Build project
+      #   run: npm run build
+
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}  # e.g., ftp.yourdomain.com
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./  # Or './dist/' if you have a build folder
+          server-dir: ~/public_html/website_57427395  # Path on HostGator server
