@@ -43,6 +43,8 @@ class LipSyncAnimator {
         this.lastSpeechEndTime = 0;
         this.isDoubleBlink = false;     // flag for fast double blinks
         this.doubleBlinkDelay = 40;     // ms between blinks in a double blink (twice as fast)
+        this.RECORDING_FPS = 24;
+        this.lastRecordDrawTime = 0;    // throttle canvas updates to RECORDING_FPS when recording
         
         this.setupEventListeners();
         this.setupCanvas();
@@ -679,8 +681,8 @@ class LipSyncAnimator {
             this.analyserNode.connect(audioCtx.destination); // Play audio
         }
 
-        // Get canvas stream
-        const canvasStream = this.canvas.captureStream(24); // 24 FPS
+        // Get canvas stream at fixed 24 FPS (we throttle draws to this rate when recording)
+        const canvasStream = this.canvas.captureStream(this.RECORDING_FPS);
 
         // Combine video and audio streams
         const videoTrack = canvasStream.getVideoTracks()[0];
@@ -712,11 +714,12 @@ class LipSyncAnimator {
             mimeType: mimeType,
             videoBitsPerSecond: 2500000,
             audioBitsPerSecond: 128000,
-            frameRate: 24,
+            frameRate: this.RECORDING_FPS,
             timeSlice: timeSlice,
             canvas: {
                 width: this.canvas.width,
-                height: this.canvas.height
+                height: this.canvas.height,
+                frameRate: this.RECORDING_FPS
             }
         });
 
@@ -724,6 +727,7 @@ class LipSyncAnimator {
 
         // Blink: first blink in 5–15 sec, then random 5–15 sec
         const t = performance.now();
+        this.lastRecordDrawTime = t; // so first frame is drawn immediately
         const range = this.MAX_BLINK_INTERVAL_MS - this.MIN_BLINK_INTERVAL_MS;
         this.nextBlinkTime = t + this.MIN_BLINK_INTERVAL_MS + Math.random() * range;
         this.blinkPhase = 'idle';
@@ -1051,7 +1055,16 @@ class LipSyncAnimator {
             }
         }
 
-        this.drawFrame(clampedOpening);
+        // When recording, throttle canvas updates to RECORDING_FPS so output video is exactly 24 FPS
+        const frameIntervalMs = 1000 / this.RECORDING_FPS;
+        if (this.isRecording) {
+            if (now - this.lastRecordDrawTime >= frameIntervalMs) {
+                this.lastRecordDrawTime = now;
+                this.drawFrame(clampedOpening);
+            }
+        } else {
+            this.drawFrame(clampedOpening);
+        }
         this.animationFrameId = requestAnimationFrame(() => this.animate());
     }
 
