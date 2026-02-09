@@ -48,6 +48,8 @@ class LipSyncAnimator {
         this.lastRecordDrawTime = 0;    // throttle canvas updates to RECORDING_FPS when recording
         this.recordingIntervalId = null;  // precise interval for 24 FPS recording
         this.frameIntervalMs = 1000 / this.RECORDING_FPS;  // exactly 41.666...ms for 24 FPS
+        this.lastAudioSampleTime = 0;  // track when we last sampled audio for more frequent sampling
+        this.currentMouthOpening = 0;  // store current mouth opening value
         
         this.setupEventListeners();
         this.setupCanvas();
@@ -591,7 +593,7 @@ class LipSyncAnimator {
         this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
         this.analyserNode = this.audioContext.createAnalyser();
         this.analyserNode.fftSize = 256;
-        this.analyserNode.smoothingTimeConstant = 0.8;
+        this.analyserNode.smoothingTimeConstant = 0.3; // Lower smoothing for more responsive animation
 
         // Create source and connect
         this.sourceNode = this.audioContext.createBufferSource();
@@ -669,7 +671,7 @@ class LipSyncAnimator {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         this.analyserNode = audioCtx.createAnalyser();
         this.analyserNode.fftSize = 256;
-        this.analyserNode.smoothingTimeConstant = 0.8;
+        this.analyserNode.smoothingTimeConstant = 0.3; // Lower smoothing for more responsive animation
 
         // Create source
         const sourceNode = audioCtx.createBufferSource();
@@ -822,31 +824,19 @@ class LipSyncAnimator {
 
         // Start precise 24 FPS recording loop using setInterval for exact timing
         // This ensures consistent frame rate regardless of display refresh rate
+        // We'll sample audio more frequently in the animation loop for better responsiveness
         this.recordingIntervalId = setInterval(() => {
             if (!this.isRecording) {
                 clearInterval(this.recordingIntervalId);
                 this.recordingIntervalId = null;
                 return;
             }
-            // Get current audio amplitude for mouth animation
-            const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
-            this.analyserNode.getByteFrequencyData(dataArray);
-            const speechStart = Math.floor(dataArray.length * 0.1);
-            const speechEnd = Math.floor(dataArray.length * 0.6);
-            let sum = 0;
-            for (let i = speechStart; i < speechEnd; i++) {
-                sum += dataArray[i];
-            }
-            const avgAmplitude = sum / (speechEnd - speechStart);
-            const normalizedAmplitude = Math.min(avgAmplitude / 255, 1);
-            const mouthOpening = Math.pow(normalizedAmplitude * this.mouthSensitivity, 0.7);
-            const clampedOpening = Math.min(mouthOpening, 1);
             
             // Update blink animation
             const now = performance.now();
             const dt = this.lastBlinkFrameTime ? now - this.lastBlinkFrameTime : this.frameIntervalMs;
             this.lastBlinkFrameTime = now;
-            this.updateBlinkAnimation(dt, clampedOpening);
+            this.updateBlinkAnimation(dt, this.currentMouthOpening);
             
             // Update progress bars
             if (this.audioDuration && this.audioContext) {
@@ -869,11 +859,12 @@ class LipSyncAnimator {
                 }
             }
             
-            // Draw frame at exactly 24 FPS
-            this.drawFrame(clampedOpening);
+            // Draw frame at exactly 24 FPS using the most recent mouth opening value
+            this.drawFrame(this.currentMouthOpening);
         }, this.frameIntervalMs);
         
-        // Also start regular animation loop for UI updates (blink timing, etc.)
+        // Also start regular animation loop for frequent audio sampling and UI updates
+        // This samples audio at ~60 FPS for better responsiveness, while drawing happens at 24 FPS
         this.animate();
     }
 
@@ -1146,9 +1137,24 @@ class LipSyncAnimator {
     animate() {
         if (!this.isPlaying) return;
 
-        // When recording, the setInterval handles everything (drawing + blink updates at precise 24 FPS)
-        // This loop only needs to keep running for UI responsiveness, but doesn't do any work
+        // When recording, sample audio frequently for responsive animation
+        // but let setInterval handle the actual drawing at precise 24 FPS
         if (this.isRecording) {
+            // Sample audio more frequently (at ~60 FPS) for better responsiveness
+            const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
+            this.analyserNode.getByteFrequencyData(dataArray);
+            const speechStart = Math.floor(dataArray.length * 0.1);
+            const speechEnd = Math.floor(dataArray.length * 0.6);
+            let sum = 0;
+            for (let i = speechStart; i < speechEnd; i++) {
+                sum += dataArray[i];
+            }
+            const avgAmplitude = sum / (speechEnd - speechStart);
+            const normalizedAmplitude = Math.min(avgAmplitude / 255, 1);
+            // Use less aggressive power curve for more responsive animation (0.7 -> 0.85)
+            const mouthOpening = Math.pow(normalizedAmplitude * this.mouthSensitivity, 0.85);
+            this.currentMouthOpening = Math.min(mouthOpening, 1);
+            
             this.animationFrameId = requestAnimationFrame(() => this.animate());
             return;
         }
@@ -1170,7 +1176,8 @@ class LipSyncAnimator {
         }
         const avgAmplitude = sum / (speechEnd - speechStart);
         const normalizedAmplitude = Math.min(avgAmplitude / 255, 1);
-        const mouthOpening = Math.pow(normalizedAmplitude * this.mouthSensitivity, 0.7);
+        // Use less aggressive power curve for more responsive animation (0.7 -> 0.85)
+        const mouthOpening = Math.pow(normalizedAmplitude * this.mouthSensitivity, 0.85);
         const clampedOpening = Math.min(mouthOpening, 1);
 
         // Update blink animation
