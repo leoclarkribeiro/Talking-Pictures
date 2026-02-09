@@ -45,6 +45,8 @@ class LipSyncAnimator {
         this.doubleBlinkDelay = 40;     // ms between blinks in a double blink (twice as fast)
         this.RECORDING_FPS = 24;
         this.lastRecordDrawTime = 0;    // throttle canvas updates to RECORDING_FPS when recording
+        this.recordingIntervalId = null;  // precise interval for 24 FPS recording
+        this.frameIntervalMs = 1000 / this.RECORDING_FPS;  // exactly 41.666...ms for 24 FPS
         
         this.setupEventListeners();
         this.setupCanvas();
@@ -681,8 +683,9 @@ class LipSyncAnimator {
             this.analyserNode.connect(audioCtx.destination); // Play audio
         }
 
-        // Get canvas stream at fixed 24 FPS (we throttle draws to this rate when recording)
-        const canvasStream = this.canvas.captureStream(this.RECORDING_FPS);
+        // Get canvas stream - don't rely on FPS parameter, we'll control frame rate precisely
+        // Use a high value or no parameter to let browser handle it, then control timing ourselves
+        const canvasStream = this.canvas.captureStream(60); // Capture at higher rate, we'll throttle to 24 FPS
 
         // Combine video and audio streams
         const videoTrack = canvasStream.getVideoTracks()[0];
@@ -769,7 +772,60 @@ class LipSyncAnimator {
         this.audioContext = audioCtx;
         this.sourceNode = sourceNode;
 
-        // Start animation loop
+        // Start precise 24 FPS recording loop using setInterval for exact timing
+        // This ensures consistent frame rate regardless of display refresh rate
+        this.recordingIntervalId = setInterval(() => {
+            if (!this.isRecording) {
+                clearInterval(this.recordingIntervalId);
+                this.recordingIntervalId = null;
+                return;
+            }
+            // Get current audio amplitude for mouth animation
+            const dataArray = new Uint8Array(this.analyserNode.frequencyBinCount);
+            this.analyserNode.getByteFrequencyData(dataArray);
+            const speechStart = Math.floor(dataArray.length * 0.1);
+            const speechEnd = Math.floor(dataArray.length * 0.6);
+            let sum = 0;
+            for (let i = speechStart; i < speechEnd; i++) {
+                sum += dataArray[i];
+            }
+            const avgAmplitude = sum / (speechEnd - speechStart);
+            const normalizedAmplitude = Math.min(avgAmplitude / 255, 1);
+            const mouthOpening = Math.pow(normalizedAmplitude * this.mouthSensitivity, 0.7);
+            const clampedOpening = Math.min(mouthOpening, 1);
+            
+            // Update blink animation
+            const now = performance.now();
+            const dt = this.lastBlinkFrameTime ? now - this.lastBlinkFrameTime : this.frameIntervalMs;
+            this.lastBlinkFrameTime = now;
+            this.updateBlinkAnimation(dt, clampedOpening);
+            
+            // Update progress bars
+            if (this.audioDuration && this.audioContext) {
+                const elapsed = this.audioContext.currentTime - this.startTime;
+                const progress = Math.min(100, (elapsed / this.audioDuration) * 100);
+                const pct = Math.round(progress) + '%';
+                if (this.skipPreview) {
+                    const progressBarFill = document.getElementById('progressBarFill');
+                    const progressText = document.getElementById('progressText');
+                    if (progressBarFill && progressText) {
+                        progressBarFill.style.width = progress + '%';
+                        progressText.textContent = pct;
+                    }
+                }
+                const canvasProgressBarFill = document.getElementById('canvasProgressBarFill');
+                const canvasProgressText = document.getElementById('canvasProgressText');
+                if (canvasProgressBarFill && canvasProgressText) {
+                    canvasProgressBarFill.style.width = progress + '%';
+                    canvasProgressText.textContent = pct;
+                }
+            }
+            
+            // Draw frame at exactly 24 FPS
+            this.drawFrame(clampedOpening);
+        }, this.frameIntervalMs);
+        
+        // Also start regular animation loop for UI updates (blink timing, etc.)
         this.animate();
     }
 
@@ -779,6 +835,12 @@ class LipSyncAnimator {
         this.isRecording = false;
         const recordBtn = document.getElementById('recordBtn');
         const recordingStatus = document.getElementById('recordingStatus');
+        
+        // Stop precise 24 FPS interval
+        if (this.recordingIntervalId) {
+            clearInterval(this.recordingIntervalId);
+            this.recordingIntervalId = null;
+        }
         
         // Stop animation and audio
         this.isPlaying = false;
@@ -929,6 +991,53 @@ class LipSyncAnimator {
         this.drawFrame();
     }
 
+    updateBlinkAnimation(dt, clampedOpening) {
+        const now = performance.now();
+        
+        // Track simple "speech active" state to detect ends of phrases
+        const wasSpeechActive = this.speechActive;
+        const speechThreshold = 0.35;
+        this.speechActive = clampedOpening > speechThreshold;
+        if (wasSpeechActive && !this.speechActive) {
+            this.lastSpeechEndTime = now;
+            // Occasionally force a blink soon after speech ends ("sentence"-like)
+            if (this.blinkPhase === 'idle' &&
+                this.selectedLeftEyeArea && this.selectedRightEyeArea &&
+                Math.random() < 0.6) {
+                this.nextBlinkTime = now + 120 + Math.random() * 220; // ~0.12–0.34s after phrase end
+            }
+        }
+
+        // --- Blink update: ~20/min + sentence-synced + occasional double blinks ---
+        if (this.blinkPhase === 'closing') {
+            this.blinkProgress = Math.min(1, this.blinkProgress + dt / this.BLINK_DURATION_MS);
+            if (this.blinkProgress >= 1) this.blinkPhase = 'opening';
+        } else if (this.blinkPhase === 'opening') {
+            this.blinkProgress = Math.max(0, this.blinkProgress - dt / this.BLINK_DURATION_MS);
+            if (this.blinkProgress <= 0) {
+                // Blink completed
+                if (this.isDoubleBlink) {
+                    // This was the first blink of a double - start second blink after short delay
+                    this.nextBlinkTime = now + this.doubleBlinkDelay;
+                    this.blinkPhase = 'idle'; // Brief pause before second blink
+                    this.isDoubleBlink = false; // Second blink will complete normally
+                } else {
+                    // Normal single blink completed - schedule next blink
+                    this.blinkPhase = 'idle';
+                    const range = this.MAX_BLINK_INTERVAL_MS - this.MIN_BLINK_INTERVAL_MS;
+                    this.nextBlinkTime = now + this.MIN_BLINK_INTERVAL_MS + Math.random() * range;
+                }
+            }
+        } else if (this.selectedLeftEyeArea && this.selectedRightEyeArea && now >= this.nextBlinkTime) {
+            // Starting a new blink - 12% chance it's a double blink
+            this.blinkPhase = 'closing';
+            this.blinkProgress = 0;
+            if (Math.random() < 0.12) {
+                this.isDoubleBlink = true; // Mark this blink sequence as a double blink
+            }
+        }
+    }
+
     async reset() {
         this.stop();
         if (this.isRecording) {
@@ -972,6 +1081,14 @@ class LipSyncAnimator {
     animate() {
         if (!this.isPlaying) return;
 
+        // When recording, the setInterval handles everything (drawing + blink updates at precise 24 FPS)
+        // This loop only needs to keep running for UI responsiveness, but doesn't do any work
+        if (this.isRecording) {
+            this.animationFrameId = requestAnimationFrame(() => this.animate());
+            return;
+        }
+
+        // When not recording, handle normal playback animation
         const now = performance.now();
         const dt = this.lastBlinkFrameTime ? now - this.lastBlinkFrameTime : 0;
         this.lastBlinkFrameTime = now;
@@ -991,80 +1108,11 @@ class LipSyncAnimator {
         const mouthOpening = Math.pow(normalizedAmplitude * this.mouthSensitivity, 0.7);
         const clampedOpening = Math.min(mouthOpening, 1);
 
-        // Track simple \"speech active\" state to detect ends of phrases
-        const wasSpeechActive = this.speechActive;
-        const speechThreshold = 0.35;
-        this.speechActive = clampedOpening > speechThreshold;
-        if (wasSpeechActive && !this.speechActive) {
-            this.lastSpeechEndTime = now;
-            // Occasionally force a blink soon after speech ends (\"sentence\"-like)
-            if (this.blinkPhase === 'idle' &&
-                this.selectedLeftEyeArea && this.selectedRightEyeArea &&
-                Math.random() < 0.6) {
-                this.nextBlinkTime = now + 120 + Math.random() * 220; // ~0.12–0.34s after phrase end
-            }
-        }
+        // Update blink animation
+        this.updateBlinkAnimation(dt, clampedOpening);
 
-        // --- Blink update: ~20/min + sentence-synced + occasional double blinks ---
-        if (this.blinkPhase === 'closing') {
-            this.blinkProgress = Math.min(1, this.blinkProgress + dt / this.BLINK_DURATION_MS);
-            if (this.blinkProgress >= 1) this.blinkPhase = 'opening';
-        } else if (this.blinkPhase === 'opening') {
-            this.blinkProgress = Math.max(0, this.blinkProgress - dt / this.BLINK_DURATION_MS);
-            if (this.blinkProgress <= 0) {
-                // Blink completed
-                if (this.isDoubleBlink) {
-                    // This was the first blink of a double - start second blink after short delay
-                    this.nextBlinkTime = now + this.doubleBlinkDelay;
-                    this.blinkPhase = 'idle'; // Brief pause before second blink
-                    this.isDoubleBlink = false; // Second blink will complete normally
-                } else {
-                    // Normal single blink completed - schedule next blink
-                    this.blinkPhase = 'idle';
-                    const range = this.MAX_BLINK_INTERVAL_MS - this.MIN_BLINK_INTERVAL_MS;
-                    this.nextBlinkTime = now + this.MIN_BLINK_INTERVAL_MS + Math.random() * range;
-                }
-            }
-        } else if (this.selectedLeftEyeArea && this.selectedRightEyeArea && now >= this.nextBlinkTime) {
-            // Starting a new blink - 12% chance it's a double blink
-            this.blinkPhase = 'closing';
-            this.blinkProgress = 0;
-            if (Math.random() < 0.12) {
-                this.isDoubleBlink = true; // Mark this blink sequence as a double blink
-            }
-        }
-
-        // Update progress bar(s) when recording
-        if (this.isRecording && this.audioDuration && this.audioContext) {
-            const elapsed = this.audioContext.currentTime - this.startTime;
-            const progress = Math.min(100, (elapsed / this.audioDuration) * 100);
-            const pct = Math.round(progress) + '%';
-            if (this.skipPreview) {
-                const progressBarFill = document.getElementById('progressBarFill');
-                const progressText = document.getElementById('progressText');
-                if (progressBarFill && progressText) {
-                    progressBarFill.style.width = progress + '%';
-                    progressText.textContent = pct;
-                }
-            }
-            const canvasProgressBarFill = document.getElementById('canvasProgressBarFill');
-            const canvasProgressText = document.getElementById('canvasProgressText');
-            if (canvasProgressBarFill && canvasProgressText) {
-                canvasProgressBarFill.style.width = progress + '%';
-                canvasProgressText.textContent = pct;
-            }
-        }
-
-        // When recording, throttle canvas updates to RECORDING_FPS so output video is exactly 24 FPS
-        const frameIntervalMs = 1000 / this.RECORDING_FPS;
-        if (this.isRecording) {
-            if (now - this.lastRecordDrawTime >= frameIntervalMs) {
-                this.lastRecordDrawTime = now;
-                this.drawFrame(clampedOpening);
-            }
-        } else {
-            this.drawFrame(clampedOpening);
-        }
+        // Draw frame for playback
+        this.drawFrame(clampedOpening);
         this.animationFrameId = requestAnimationFrame(() => this.animate());
     }
 
