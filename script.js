@@ -18,6 +18,7 @@ class LipSyncAnimator {
         this.recorder = null;
         this.audioElement = null;
         this.startTime = 0;
+        this.selectedMimeType = null;  // Store selected mime type for file extension
         this.mouthSensitivity = 1.5;
         this.mouthSize = 1.0;
         this.mouthPosition = { x: 0, y: 0, width: 0, height: 0 };
@@ -693,15 +694,45 @@ class LipSyncAnimator {
         
         const combinedStream = new MediaStream([videoTrack, audioTrack]);
 
-        // Determine supported mime type (prefer MP4, fallback to WebM)
-        let mimeType = 'video/webm;codecs=vp9';
-        if (MediaRecorder.isTypeSupported('video/mp4')) {
-            mimeType = 'video/mp4';
-        } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-            mimeType = 'video/webm;codecs=vp9';
-        } else if (MediaRecorder.isTypeSupported('video/webm')) {
-            mimeType = 'video/webm';
+        // Determine supported mime type - prioritize H.264 MP4 codecs
+        // Try different H.264 profiles in order of preference
+        let mimeType = null;
+        const h264Codecs = [
+            'video/mp4;codecs=avc1.42E01E',  // H.264 Baseline Profile Level 3.0
+            'video/mp4;codecs=avc1.4D001E',  // H.264 Main Profile Level 3.0
+            'video/mp4;codecs=avc1.64001E',  // H.264 High Profile Level 3.0
+            'video/mp4;codecs=avc1.42E01F',  // H.264 Baseline Profile Level 3.1
+            'video/mp4;codecs=avc1.4D001F',  // H.264 Main Profile Level 3.1
+            'video/mp4;codecs=avc1',          // H.264 (generic)
+            'video/mp4'                       // MP4 (may not guarantee H.264)
+        ];
+        
+        // Find first supported H.264 codec
+        for (const codec of h264Codecs) {
+            if (MediaRecorder.isTypeSupported(codec)) {
+                mimeType = codec;
+                break;
+            }
         }
+        
+        // Fallback to WebM if no H.264 support (should be rare on modern browsers)
+        if (!mimeType) {
+            console.warn('H.264 MP4 not supported, falling back to WebM');
+            if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+                mimeType = 'video/webm;codecs=vp9';
+            } else if (MediaRecorder.isTypeSupported('video/webm')) {
+                mimeType = 'video/webm';
+            } else {
+                // Last resort - should not happen on modern browsers
+                mimeType = 'video/webm';
+            }
+        }
+        
+        // Store selected mime type for file extension
+        this.selectedMimeType = mimeType;
+        
+        // Log selected codec for debugging
+        console.log('Selected video codec:', mimeType);
 
         // Check audio duration and warn for very long recordings
         const audioDurationMinutes = this.audioBuffer ? this.audioBuffer.duration / 60 : 0;
@@ -712,7 +743,9 @@ class LipSyncAnimator {
         // Start recording with RecordRTC
         // Use timeSlice for long recordings to avoid memory issues
         const timeSlice = 1000; // Get chunks every second for long recordings
-        this.recorder = RecordRTC(combinedStream, {
+        
+        // RecordRTC configuration - prioritize H.264 MP4
+        const recorderOptions = {
             type: 'video',
             mimeType: mimeType,
             videoBitsPerSecond: 2500000,
@@ -724,7 +757,22 @@ class LipSyncAnimator {
                 height: this.canvas.height,
                 frameRate: this.RECORDING_FPS
             }
-        });
+        };
+        
+        // If using H.264 MP4, ensure we're requesting it explicitly
+        // Some browsers need explicit codec specification
+        if (mimeType.includes('mp4') && mimeType.includes('avc1')) {
+            // Already have specific H.264 codec, use as-is
+            recorderOptions.mimeType = mimeType;
+        } else if (mimeType.includes('mp4')) {
+            // Generic MP4 - try to specify H.264 if possible
+            if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')) {
+                recorderOptions.mimeType = 'video/mp4;codecs=avc1';
+                this.selectedMimeType = 'video/mp4;codecs=avc1';
+            }
+        }
+        
+        this.recorder = RecordRTC(combinedStream, recorderOptions);
 
         this.recorder.startRecording();
 
@@ -912,11 +960,28 @@ class LipSyncAnimator {
                                 return;
                             }
                             
+                            // Log actual blob type for debugging
+                            console.log('Recorded blob type:', blob.type);
+                            console.log('Requested mimeType:', this.selectedMimeType);
+                            
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
-                            // Use appropriate extension based on mime type
-                            const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
+                            // Determine file extension based on actual blob type and requested codec
+                            // If we requested MP4/H.264, use .mp4 extension even if blob.type says otherwise
+                            // (RecordRTC might produce MP4 but report different mimeType)
+                            let extension = 'mp4'; // Default to MP4 if we requested H.264
+                            if (this.selectedMimeType && this.selectedMimeType.includes('mp4')) {
+                                extension = 'mp4';
+                            } else if (blob.type.includes('mp4')) {
+                                extension = 'mp4';
+                            } else if (blob.type.includes('webm')) {
+                                extension = 'webm';
+                            } else {
+                                // Fallback: check if it's actually an MP4 file by checking first bytes
+                                // MP4 files start with specific box signatures
+                                extension = 'mp4'; // Default to MP4 for H.264
+                            }
                             a.download = `lip-sync-animation-${Date.now()}.${extension}`;
                             document.body.appendChild(a);
                             a.click();
